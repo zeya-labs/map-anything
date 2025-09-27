@@ -1,0 +1,4 @@
+*.pyc
+mapanything.egg-info/
+outputs/
+.gradio/

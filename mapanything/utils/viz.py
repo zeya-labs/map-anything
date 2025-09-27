@@ -9,6 +9,7 @@ Utility functions for visualization
 
 from argparse import ArgumentParser, Namespace
 from distutils.util import strtobool
+from uuid import UUID
 
 import numpy as np
 import rerun as rr
@@ -134,6 +135,62 @@ def script_add_rerun_args(parser: ArgumentParser) -> None:
         action="store_true",
         help="Log data to standard output, to be piped into a Rerun Viewer",
     )
+    parser.add_argument(
+        "--web_port",
+        type=int,
+        default=9090,
+        help="Port for the Rerun web viewer when using --serve",
+    )
+    parser.add_argument(
+        "--grpc_port",
+        type=int,
+        default=9876,
+        help="Port for the Rerun gRPC server when using --serve",
+    )
+
+
+def script_setup_with_port(
+    args: Namespace,
+    application_id: str,
+    recording_id: str | UUID | None = None,
+    default_blueprint: rr.blueprint.BlueprintLike | None = None,
+) -> rr.RecordingStream:
+    """Variant of rr.script_setup that allows configuring the web viewer port."""
+
+    rr.init(
+        application_id=application_id,
+        recording_id=recording_id,
+        default_enabled=True,
+        strict=True,
+    )
+
+    rec: rr.RecordingStream = rr.get_global_data_recording()  # type: ignore[assignment]
+
+    served = False
+
+    if args.stdout:
+        rec.stdout(default_blueprint=default_blueprint)
+        served = True
+    if args.serve:
+        connect_to = rec.serve_grpc(
+            grpc_port=args.grpc_port,
+            default_blueprint=default_blueprint,
+        )
+        rr.serve_web_viewer(
+            web_port=args.web_port,
+            open_browser=True,
+            connect_to=connect_to,
+        )
+        served = True
+    if args.connect:
+        rec.connect_grpc(args.url, default_blueprint=default_blueprint)
+        served = True
+    if args.save is not None:
+        rec.save(args.save, default_blueprint=default_blueprint)
+    if not served and not args.headless:
+        rec.spawn(default_blueprint=default_blueprint)
+
+    return rec
 
 
 def init_rerun_args(

@@ -25,6 +25,7 @@ from mapanything.utils.image import load_images
 from mapanything.utils.viz import (
     predictions_to_glb,
     script_add_rerun_args,
+    script_setup_with_port,
 )
 
 
@@ -101,6 +102,24 @@ def get_parser():
         help="Use Apache 2.0 licensed model (facebook/map-anything-apache)",
     )
     parser.add_argument(
+        "--model_path",
+        type=str,
+        default=None,
+        help="Local path or custom Hugging Face model ID; overrides --apache",
+    )
+    parser.add_argument(
+        "--hf_endpoint",
+        type=str,
+        default=None,
+        help="Custom Hugging Face endpoint/mirror URL, e.g. https://hf-mirror.com",
+    )
+    parser.add_argument(
+        "--hf_cache_dir",
+        type=str,
+        default=None,
+        help="Custom Hugging Face cache directory for reusing downloaded weights",
+    )
+    parser.add_argument(
         "--viz",
         action="store_true",
         default=False,
@@ -134,8 +153,25 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
+    if args.hf_endpoint:
+        os.environ["HF_ENDPOINT"] = args.hf_endpoint
+        print(f"Using custom Hugging Face endpoint: {args.hf_endpoint}")
+
+    if args.hf_cache_dir:
+        os.environ["HUGGINGFACE_HUB_CACHE"] = args.hf_cache_dir
+        os.environ.setdefault("HF_HOME", args.hf_cache_dir)
+        print(f"Using custom Hugging Face cache directory: {args.hf_cache_dir}")
+
+    if args.save:
+        save_dir = os.path.dirname(os.path.abspath(args.save))
+        if save_dir and not os.path.exists(save_dir):
+            os.makedirs(save_dir, exist_ok=True)
+
     # Initialize model from HuggingFace
-    if args.apache:
+    if args.model_path is not None:
+        model_name = args.model_path
+        print(f"Loading MapAnything model from custom path or repo: {model_name}")
+    elif args.apache:
         model_name = "facebook/map-anything-apache"
         print("Loading Apache 2.0 licensed MapAnything model...")
     else:
@@ -164,7 +200,15 @@ def main():
     if args.viz:
         print("Starting visualization...")
         viz_string = "MapAnything_Visualization"
-        rr.script_setup(args, viz_string)
+        try:
+            script_setup_with_port(args, viz_string)
+        except RuntimeError as err:
+            if "Address already in use" in str(err):
+                raise RuntimeError(
+                    f"Failed to launch Rerun web viewer on port {args.web_port}. "
+                    "Free the port or rerun with --web_port <PORT> to use a different one."
+                ) from err
+            raise
         rr.set_time("stable_time", sequence=0)
         rr.log("mapanything", rr.ViewCoordinates.RDF, static=True)
 
@@ -213,10 +257,22 @@ def main():
     if args.save_glb:
         print(f"Saving GLB file to: {args.output_path}")
 
+        output_path = os.path.abspath(args.output_path)
+        _, ext = os.path.splitext(output_path)
+        if ext.lower() not in {".glb", ".gltf"}:
+            raise ValueError(
+                "Unsupported output format for --output_path. Expected .glb or .gltf. "
+                "If you want a Rerun recording, use --save <path>.rrd instead."
+            )
+
         # Stack all views
         world_points = np.stack(world_points_list, axis=0)
         images = np.stack(images_list, axis=0)
         final_masks = np.stack(masks_list, axis=0)
+
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
 
         # Create predictions dict for GLB export
         predictions = {
@@ -229,10 +285,16 @@ def main():
         scene_3d = predictions_to_glb(predictions, as_mesh=True)
 
         # Save GLB file
-        scene_3d.export(args.output_path)
-        print(f"Successfully saved GLB file: {args.output_path}")
+        scene_3d.export(output_path)
+        print(f"Successfully saved GLB file: {output_path}")
     else:
         print("Skipping GLB export (--save_glb not specified)")
+
+    if args.viz:
+        rr.script_teardown(args)
+
+    if args.save:
+        print(f"Saved Rerun recording to: {os.path.abspath(args.save)}")
 
 
 if __name__ == "__main__":
