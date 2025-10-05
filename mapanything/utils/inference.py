@@ -130,6 +130,7 @@ def validate_input_views_for_inference(
 ) -> List[Dict[str, Any]]:
     """
     Strict validation and preprocessing of input views.
+    中文：严格验证和预处理输入视图。
 
     Args:
         views: List of view dictionaries
