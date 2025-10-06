@@ -1,3 +1,5 @@
+*.glb
+
 # Local Files
 outputs/
 checkpoints/
@@ -173,3 +175,4 @@ cython_debug/
 
 # VSCode
 .vscode
+scripts/test.glb
