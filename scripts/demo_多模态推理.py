@@ -75,7 +75,7 @@ def load_views_from_directory(directory: str, device: torch.device) -> List[Dict
                 "is_metric_scale": is_metric_scale,
             }
         )
-        print(f"Loaded view {path} with intrinsics {intrinsics} and camera poses {camera_poses}")
+        # print(f"Loaded view {path} with intrinsics {intrinsics} and camera poses {camera_poses}")
 
     return views
 
@@ -159,6 +159,7 @@ def export_glb(
         predictions_np,
         show_cam=True,
         as_mesh=as_mesh,
+        mask_black_bg=True,
         mask_ambiguous=True,
     )
     scene.export(str(output_path))
@@ -228,7 +229,7 @@ if __name__ == "__main__":
 '''
 示例输入：
 python demo_多模态推理.py \
-/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20251006-154923/images/step_000174/batch_000 \
+/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20251006-211323/images/step_000001/batch_000 \
 --output_path /mnt/sdb/chenmohan/VGGT-NBV/map-anything/scripts/test.glb
 示例输出：
 Inference finished! Per-view outputs:
