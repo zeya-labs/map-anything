@@ -257,6 +257,7 @@ def load_images(
     if resize_mode == "fixed_mapping":
         # Resolution mappings are already compatible with their respective patch sizes
         # 518 mappings are divisible by 14, 512 mappings are divisible by 16
+        # 中文：
         target_width, target_height = find_closest_aspect_ratio(
             average_aspect_ratio, resolution_set
         )
@@ -343,6 +344,7 @@ def preprocess_inputs(
 ):
     """
     Preprocess input_views by determining optimal aspect ratio and resizing all images and multi-modal inputs.
+    中文：通过确定最佳宽高比来预处理 input_views，并调整所有图像和多模态输入的尺寸。
 
     Similar to load_images function, this function:
     (a) Determines the optimal aspect ratio from all input images
