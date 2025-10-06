@@ -3,6 +3,7 @@
 <a href="https://map-anything.github.io/assets/MapAnything.pdf"><img src="https://img.shields.io/badge/Paper-blue" alt="Paper"></a>
 <a href="https://arxiv.org/abs/2509.13414"><img src="https://img.shields.io/badge/arXiv-2509.13414-b31b1b" alt="arXiv"></a>
 <a href="https://map-anything.github.io/"><img src="https://img.shields.io/badge/Project_Page-green" alt="Project Page"></a>
+<a href="https://x.com/Nik__V__/status/1968316841618518371"><img src="https://img.shields.io/badge/X_Thread-1DA1F2" alt="X Thread"></a>
 <a href="https://huggingface.co/spaces/facebook/map-anything"><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Demo-blue'></a>
 <br>
 <br>
@@ -64,6 +65,7 @@ MapAnything is a simple, end-to-end trained transformer model that directly regr
   - [Online Demo](#online-demo)
   - [Local Gradio Demo](#local-gradio-demo)
   - [Rerun Demo](#rerun-demo)
+  - [Demo Inference on COLMAP outputs](#demo-inference-on-colmap-outputs)
 - [COLMAP & GSplat Support](#colmap--gsplat-support)
   - [Exporting to COLMAP Format](#exporting-to-colmap-format)
   - [Integration with Gaussian Splatting](#integration-with-gaussian-splatting)
@@ -403,7 +405,28 @@ python scripts/demo_images_only_inference.py \
     --save_glb \
     --output_path /path/to/output.glb
 
-# Terminal 3: Open web viewer at http://127.0.0.1:2006 (You might need to port forward if using a remote server)
+# Terminal 3 or Local Machine: Open web viewer at http://127.0.0.1:2006 (You might need to port forward if using a remote server)
+```
+
+Use `--apache` flag to use the Apache 2.0 licensed model. Optionally, if rerun is installed locally, local rerun viewer can be spawned using: `rerun --connect rerun+http://127.0.0.1:2004/proxy`.
+
+### Demo Inference on COLMAP outputs
+
+We provide a demo script to run MapAnything inference on COLMAP outputs. The script runs MapAnything in MVS mode by default. Use the `--help` flag for more info.
+
+```bash
+# Terminal 1: Start the Rerun server
+rerun --serve --port 2004 --web-viewer-port 2006
+
+# Terminal 2: Run MapAnything inference on COLMAP output folder
+# Use --memory_efficient_inference for running inference on a larger number of views
+python scripts/demo_inference_on_colmap_outputs.py \
+    --colmap_path /path/to/your/colmap_output \
+    --viz \
+    --save_glb \
+    --output_path /path/to/output.glb
+
+# Terminal 3 or Local Machine: Open web viewer at http://127.0.0.1:2006 (You might need to port forward if using a remote server)
 ```
 
 Use `--apache` flag to use the Apache 2.0 licensed model. Optionally, if rerun is installed locally, local rerun viewer can be spawned using: `rerun --connect rerun+http://127.0.0.1:2004/proxy`.
