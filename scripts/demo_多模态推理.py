@@ -70,9 +70,9 @@ def load_views_from_directory(directory: str, device: torch.device) -> List[Dict
         views.append(
             {
                 "img": img,
-                # "intrinsics": intrinsics,
+                "intrinsics": intrinsics,
                 "camera_poses": camera_poses,
-                # "is_metric_scale": is_metric_scale.to(device),
+                "is_metric_scale": is_metric_scale,
             }
         )
         print(f"Loaded view {path} with intrinsics {intrinsics} and camera poses {camera_poses}")
@@ -178,7 +178,7 @@ def main() -> None:
     
     # Preprocess inputs to the expected format
     processed_views = preprocess_inputs(views_example)
-
+    # print(processed_views)
     # Run inference with any combination of inputs
     predictions = model.infer(
         processed_views,
@@ -208,12 +208,12 @@ def main() -> None:
                 f"Expected prediction for view {view_idx} to be a dict, got {type(pred)}"
             )
 
-        # print(f"  View {view_idx:02d} ({len(pred)} fields):")
-        # for key, value in pred.items():
-        #     if isinstance(value, torch.Tensor):
-        #         print(f"    - {key}: Tensor{tuple(value.shape)} {value.dtype}")
-        #     else:
-        #         print(f"    - {key}: {type(value).__name__}")
+        print(f"  View {view_idx:02d} ({len(pred)} fields):")
+        for key, value in pred.items():
+            if isinstance(value, torch.Tensor):
+                print(f"    - {key}: Tensor{tuple(value.shape)} {value.dtype}")
+            else:
+                print(f"    - {key}: {type(value).__name__}")
 
     if args.output_path is not None:
         saved_path = export_glb(predictions, Path(args.output_path), args.as_mesh)
@@ -227,7 +227,9 @@ if __name__ == "__main__":
 
 '''
 示例输入：
-python demo_多模态推理.py /mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20251005-201731/images/step_000003/batch_000 --output_path /mnt/sdb/chenmohan/VGGT-NBV/map-anything/scripts/test.glb
+python demo_多模态推理.py \
+/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20251006-154923/images/step_000174/batch_000 \
+--output_path /mnt/sdb/chenmohan/VGGT-NBV/map-anything/scripts/test.glb
 示例输出：
 Inference finished! Per-view outputs:
   View 00 (15 fields):
