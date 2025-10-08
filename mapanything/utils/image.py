@@ -38,6 +38,9 @@ from uniception.models.encoders.image_normalizations import IMAGE_NORMALIZATION_
 
 # Fixed resolution mappings with precomputed aspect ratios as keys
 RESOLUTION_MAPPINGS = {
+    224: {
+        1.000: (224, 224),  # 1:1
+    },
     518: {
         1.000: (518, 518),  # 1:1
         1.321: (518, 392),  # 4:3
@@ -66,6 +69,7 @@ RESOLUTION_MAPPINGS = {
 
 # Precomputed sorted aspect ratio keys for efficient lookup
 ASPECT_RATIO_KEYS = {
+    224: sorted(RESOLUTION_MAPPINGS[224].keys()),
     518: sorted(RESOLUTION_MAPPINGS[518].keys()),
     512: sorted(RESOLUTION_MAPPINGS[512].keys()),
 }

@@ -151,6 +151,13 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
         # Initialize image encoder
         if self.encoder_config["uses_torch_hub"]:
             self.encoder_config["torch_hub_force_reload"] = torch_hub_force_reload
+
+        
+        # print("encoder_config", self.encoder_config)
+        # 输出：encoder_config {'data_norm_type': 'dinov2', 'encoder_str': 'dinov2',
+        #  'gradient_checkpointing': True, 'name': 'dinov2_large', 'size': 'large', 
+        # 'torch_hub_force_reload': False, 'uses_torch_hub': True, 'with_registers': False}
+        
         # Create a copy of the config before deleting the key to preserve it for serialization
         encoder_config_copy = self.encoder_config.copy()
         del encoder_config_copy["uses_torch_hub"]
@@ -1540,6 +1547,8 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
                 final_info_sharing_multi_view_feat,
                 intermediate_info_sharing_multi_view_feat,
             ) = self.info_sharing(info_sharing_input)
+
+        # print("info_sharing features shape:", [i.shape for i in final_info_sharing_multi_view_feat.features])
 
         if self.pred_head_type == "linear":
             # Stack the features for all views

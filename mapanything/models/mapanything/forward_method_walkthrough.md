@@ -6,7 +6,8 @@
 - `H_img × W_img`: 输入图像分辨率。
 - `p`: 编码器 patch 大小 (`self.encoder.patch_size`)。
 - `H_feat = H_img / p`, `W_feat = W_img / p`: 编码器/Transformer 的 patch 网格分辨率。
-- `C_enc`: 图像编码器输出通道 (= Transformer 输入/输出通道)。
+- `C_enc`: 图像编码器输出通道，用作 Transformer 的输入维度。
+- `C_info`: 多视角 Transformer 内部输出维度 (`self.info_sharing.dim`)，可能与 `C_enc` 不同。
 
 所有形状均以 `NCHW` 表示（batch、通道、高、宽），除非特别说明。
 
@@ -72,27 +73,27 @@
    - `features`: 上一步的列表，元素 `(B, C_enc, H_feat, W_feat)`；
    - `additional_input_tokens`: `(B, C_enc, 1)`。
 3. 调用 `self.info_sharing`：
-   - 若 `info_sharing_return_type == "no_intermediate_features"`：返回 `MultiViewTransformerOutput`，其中 `features` 仍为长度 `V` 的列表，每项 `(B, C_enc, H_feat, W_feat)`；`additional_token_features` 为 `(B, C_enc, 1)`。
+   - 若 `info_sharing_return_type == "no_intermediate_features"`：返回 `MultiViewTransformerOutput`，其中 `features` 仍为长度 `V` 的列表，每项 `(B, C_enc, H_feat, W_feat)`；`additional_token_features` 为 `(B, C_info, 1)`。
    - 若为 `"intermediate_features"`：额外返回若干 `MultiViewTransformerOutput`，用于 DPT 多尺度分支。布局与最终输出一致。
 
 ## 阶段 4：拼装下游预测头输入
 - `pred_head_type == "linear"`：
-  - `dense_head_inputs = torch.cat(final_info_sharing_multi_view_feat.features, dim=0)` → `(B·V, C_enc, H_feat, W_feat)`。
+  - `dense_head_inputs = torch.cat(final_info_sharing_multi_view_feat.features, dim=0)` → `(B·V, C_info, H_feat, W_feat)`。
 - `pred_head_type in {"dpt", "dpt+pose"}`：
   - 构建列表 `dense_head_inputs_list`。
   - 若 `self.use_encoder_features_for_dpt` 为真：按顺序追加
     1. 编码器输出 `(B·V, C_enc, H_feat, W_feat)`；
-    2-3. 两个中间层 `(B·V, C_enc, H_feat, W_feat)`；
-    4. 最终层 `(B·V, C_enc, H_feat, W_feat)`。
-  - 否则使用 Transformer 返回的三个中间层 + 最终层（同形状）。
-- 尺度分支：`scale_head_inputs = final_info_sharing_multi_view_feat.additional_token_features`，形状 `(B, C_enc, 1)`。
+    2-3. 两个中间层 `(B·V, C_info, H_feat, W_feat)`；
+    4. 最终层 `(B·V, C_info, H_feat, W_feat)`。
+  - 否则使用 Transformer 返回的三个中间层 + 最终层（形状均为 `(B·V, C_info, H_feat, W_feat)`）。
+- 尺度分支：`scale_head_inputs = final_info_sharing_multi_view_feat.additional_token_features`，形状 `(B, C_info, 1)`。
 
 ## 阶段 5：预测头执行与特征解码
 整段再次禁用 AMP。
 
 ### 5.1 稠密预测头 (`self.dense_head` + `self.dense_adaptor`)
 - `pred_head_type == "linear"`：
-  1. `LinearFeature` 接收 `(B·V, C_enc, H_feat, W_feat)`；
+  1. `LinearFeature` 接收 `(B·V, C_info, H_feat, W_feat)`；
   2. 先 `Conv2d` 输出 `(B·V, C_out·p², H_feat, W_feat)`；
   3. `pixel_shuffle` 还原到 `(B·V, C_out, H_img, W_img)`；
   4. 交由 `dense_adaptor`（与 `scene_rep_type` 对应）转换为结构化结果，比如 point map（三通道）、ray map（七通道）等。
@@ -102,12 +103,12 @@
     - 可选 `confidence` / `mask` / `logits` 等附加张量，布局一致。
 
 ### 5.2 姿态预测头（仅 `dpt+pose`）
-- 取 `dense_head_inputs[-1]`（Transformer 最后一层特征，形状 `(B·V, C_enc, H_feat, W_feat)`）。
+- 取 `dense_head_inputs[-1]`（Transformer 最后一层特征，形状 `(B·V, C_info, H_feat, W_feat)`）。
 - `PoseHead` 通过 1×1 卷积 + ResConv + 全局池化，输出 `(B·V, 7)`（3 个平移量 + 4 个四元数分量）。
 - `pose_adaptor` 将其解释为 `(B·V, 7)`，分别执行平移与旋转的后处理，得到 `AdaptorOutput.value`，形状 `(B·V, 7)`（或拆分视角后 `(B, 7)`）。
 
 ### 5.3 尺度预测头
-- `scale_head` 接收 `(B, C_enc, 1)`，输出 `decoded_channels` `(B, C_scale)`。
+- `scale_head` 接收 `(B, C_info, 1)`，输出 `decoded_channels` `(B, C_scale)`。
 - `scale_adaptor` 将其映射到 `(B, 1, 1)`，最后 squeeze 得到 `(B, 1)` 的度量缩放因子，并在随后广播到空间维度。
 
 ### 5.4 `memory_efficient_inference=True` 的分块逻辑
@@ -137,9 +138,9 @@
 - 依据 `scene_rep_type`，附加 `pts3d_cam`、`ray_origins`、`ray_directions`、`depth_along_ray`、`cam_trans`、`cam_quats`、`conf`、`non_ambiguous_mask` 等键。
 
 ## 核心辅助模块速览
-- `_encode_n_views`：图像批拼接 → ViT 编码 → 列表 `(B, C_enc, H_feat, W_feat)`。
+- `_encode_n_views`：图像批拼接 → ViT 编码 → 列表 `(B, C_info, H_feat, W_feat)`。
 - `_encode_and_fuse_optional_geometric_inputs`：多模态编码器（射线/深度/姿态） → 与图像特征同形状的增量，然后做 LayerNorm。
-- `MultiView*Transformer`：接受 `V` 份 `(B, C_enc, H_feat, W_feat)` 与尺度 token `(B, C_enc, 1)`，输出同步形状的跨视角特征，必要时附带中间层。
+- `MultiView*Transformer`：接受 `V` 份 `(B, C_info, H_feat, W_feat)` 与尺度 token `(B, C_info, 1)`，输出同步形状的跨视角特征，必要时附带中间层。
 - `downstream_head`：协调稠密头、姿态头、尺度头，并在需要时执行 mini-batch 切分。
 - 各类 `Adaptor`：将 `(B·V, channels, H_img, W_img)` 或 `(B·V, channels)` 的张量解码成点云、射线、姿态等结构化字段。
 
