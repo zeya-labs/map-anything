@@ -27,12 +27,11 @@
 
 ## 基本用法
 ```bash
-python scripts/demo_images_only_inference.py \
-   --image_folder /mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20250927-192951/images/step_000001/batch_000 \
-   --viz --connect \
-   --url rerun+http://127.0.0.1:9876/proxy \
-   --save outputs/run.rrd \
-   --save_glb --output_path outputs/scene.glb
+python map-anything/scripts/demo_images_only_inference.py \
+   --image_folder /mnt/sdb/chenmohan/VGGT-NBV/TEMP/view/render_output_volume_10/images \
+   --viz --serve --web_port 9098 --connect False
+  #  --save outputs/run.rrd \
+  #  --save_glb --output_path outputs/scene.glb
 ```
 运行过程将：
 - 自动检测 GPU/CPU 并加载对应模型；
