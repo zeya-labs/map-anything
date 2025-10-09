@@ -229,7 +229,7 @@ if __name__ == "__main__":
 '''
 示例输入：
 python demo_多模态推理.py \
-/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20251007-172601/images/step_000005/batch_000 \
+/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20251009-004635/images/step_000007/batch_000 \
 --output_path /mnt/sdb/chenmohan/VGGT-NBV/map-anything/scripts/test.glb
 示例输出：
 Inference finished! Per-view outputs:

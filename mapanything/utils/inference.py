@@ -312,6 +312,14 @@ def postprocess_model_outputs_for_inference(
     4. Recovering pinhole camera intrinsics from ray directions
     5. Adding camera pose matrices (camera_poses) if pose data is available
     6. Applying mask to dense geometry outputs if requested (supports edge masking and confidence masking)
+    中文：
+    对模型输出进行后处理，添加必要的派生字段。
+    1. 复制所有原始输出作为-is
+    2. 添加去归一化图像（img_no_norm）
+    3. 添加相机帧深度（depth_z）
+    4. 从射线方向恢复针孔相机内参
+    5. 如果提供了位姿数据，则添加相机位姿矩阵（camera_poses）
+    6. 如果请求，则根据非模糊掩码应用到密集几何输出（支持边缘掩码和置信度掩码）
 
     Args:
         raw_outputs: List of raw model output dictionaries, one per view
