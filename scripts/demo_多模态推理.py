@@ -145,12 +145,18 @@ def collate_predictions_for_glb(
 def export_glb(
     predictions: List[Dict[str, torch.Tensor]],
     output_path: Path,
+    input_path: Path,
     as_mesh: bool,
 ) -> Path:
     """Aggregate predictions and export a GLB file containing colored geometry and cameras."""
-    output_path = output_path.expanduser()
-    if output_path.suffix.lower() not in {".glb", ".gltf"}:
-        raise ValueError("--output_path must end with .glb or .gltf")
+    if output_path is None:
+        # 使用输入路径生成默认输出路径
+        input_path_obj = Path(input_path)
+        output_path = input_path_obj.parent / f"{input_path_obj.name}_mapanything.glb"
+    else:
+        output_path = output_path.expanduser()
+        if output_path.suffix.lower() not in {".glb", ".gltf"}:
+            raise ValueError("--output_path must end with .glb or .gltf")
     if output_path.parent:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -216,11 +222,10 @@ def main() -> None:
             else:
                 print(f"    - {key}: {type(value).__name__}")
 
-    if args.output_path is not None:
-        saved_path = export_glb(predictions, Path(args.output_path), args.as_mesh)
-        print(f"Saved GLB reconstruction to: {saved_path.resolve()}")
-    else:
-        print("GLB export skipped (provide --output_path to save a reconstruction).")
+    # 总是导出GLB文件，如果没有指定输出路径则使用默认路径
+    output_path = Path(args.output_path) if args.output_path is not None else None
+    saved_path = export_glb(predictions, output_path, Path(args.views_dir), args.as_mesh)
+    print(f"Saved GLB reconstruction to: {saved_path.resolve()}")
 
 
 if __name__ == "__main__":
@@ -228,9 +233,8 @@ if __name__ == "__main__":
 
 '''
 示例输入：
-python demo_多模态推理.py \
-/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20251009-004635/images/step_000007/batch_000 \
---output_path /mnt/sdb/chenmohan/VGGT-NBV/map-anything/scripts/test.glb
+python map-anything/scripts/demo_多模态推理.py \
+/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-8_pom-position_only_20251009-092330/images/step_000010/batch_000
 示例输出：
 Inference finished! Per-view outputs:
   View 00 (15 fields):
