@@ -1,0 +1,4 @@
+- Purpose: MapAnything is a feed-forward multi-view transformer for metric 3D reconstruction across many tasks (SfM, MVS, depth, registration).
+- Core stack: Python 3.10+, PyTorch, Hydra configs, UniCeption internal modules, optional external models (VGGT, DUST3R, etc.).
+- Repo layout: `mapanything/` python package (models, datasets, utils), `configs/` for Hydra configs, `bash_scripts/` for training recipes, `data_processing/` for dataset conversion, `scripts/` for demos and apps.
+- Training + benchmarking assets live in `train.md`, `benchmarking/`, and configs; inference helpers under `mapanything/utils`.

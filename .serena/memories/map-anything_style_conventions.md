@@ -1,0 +1,4 @@
+- Language: Python with type hints and torch tensors; functions generally annotated and use docstrings for public methods.
+- Formatting/linting: Ruff configured (pep8/isort rules) targeting Python 3.10; pre-commit hooks available.
+- Config management: Hydra YAML configs with `${}` interpolation, so prefer updating config files instead of hardcoding.
+- Naming: snake_case for functions/vars, CamelCase for classes; config keys stay lowercase with underscores.

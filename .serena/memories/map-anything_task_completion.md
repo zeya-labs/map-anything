@@ -1,0 +1,4 @@
+- After edits, run `pytest` (or targeted tests) when touching logic-heavy modules.
+- Run `pre-commit run --all-files`/`ruff` to respect lint rules.
+- If configs/scripts changed, mention required Hydra/bashi command to rerun.
+- Document new commands or requirements in README/train docs when appropriate.

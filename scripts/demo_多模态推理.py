@@ -75,7 +75,7 @@ def load_views_from_directory(directory: str, device: torch.device) -> List[Dict
                 "is_metric_scale": is_metric_scale,
             }
         )
-        # print(f"Loaded view {path} with intrinsics {intrinsics} and camera poses {camera_poses}")
+        print(f"Loaded view {path} with is_metric_scale {is_metric_scale}")
 
     return views
 
@@ -234,7 +234,7 @@ if __name__ == "__main__":
 '''
 示例输入：
 python map-anything/scripts/demo_多模态推理.py \
-/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-8_pom-position_only_20251009-092330/images/step_000010/batch_000
+/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20251019-214431/images/step_000012/batch_000
 示例输出：
 Inference finished! Per-view outputs:
   View 00 (15 fields):

@@ -146,7 +146,21 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
         # Get relevant parameters from the configs
         self.info_sharing_type = info_sharing_config["model_type"]
         self.info_sharing_return_type = info_sharing_config["model_return_type"]
+        # print("info_sharing_config:", self.info_sharing_config)
+        # info_sharing_config: {'custom_positional_encoding': None, 'model_return_type': 'intermediate_features', 'model_type': 'alternating_attention', 'module_args': {'custom_positional_encoding': None, 'depth': 24, 'distinguish_ref_and_non_ref_views': True, 'gradient_checkpointing': False, 'indices': [11, 17], 'input_embed_dim': 1024, 'name': 'aat_24_layers_ifr', 'norm_intermediate': True, 'size': '24_layers'}}
+
         self.pred_head_type = pred_head_config["type"]
+        # pred_head_type: dpt+pose
+
+        # import json
+        # formatted_dict = json.dumps(
+        #     pred_head_config,
+        #     indent=4,          # 每层缩进4个空格（{后第一行键值对会缩进4格）
+        #     ensure_ascii=False, # 若有中文也能正常显示（无中文也建议加）
+        #     sort_keys=False    # 保留字典原有的键顺序（不按字母排序）
+        # )
+        # print(formatted_dict)
+        # 输出见map-anything/mapanything/models/mapanything/json/pred_head_config.json
 
         # Initialize image encoder
         if self.encoder_config["uses_torch_hub"]:
@@ -379,15 +393,49 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
         elif "dpt" in self.pred_head_type:
             # Initialze Dense Predction Head for all views
             self.dpt_feature_head = DPTFeature(**pred_head_config["feature_head"])
+            '''
+                "feature_head": {
+                    "checkpoint_gradient": false,
+                    "feature_dim": 256,
+                    "hooks": [
+                        0,
+                        1,
+                        2,
+                        3
+                    ],
+                    "input_feature_dims": [
+                        1024,
+                        768,
+                        768,
+                        768
+                    ],
+                    "patch_size": 14
+                },
+            '''
             self.dpt_regressor_head = DPTRegressionProcessor(
                 **pred_head_config["regressor_head"]
             )
+            '''
+                "regressor_head": {
+                    "checkpoint_gradient": false,
+                    "input_feature_dim": 256,
+                    "output_dim": 6
+                },
+            '''
             self.dense_head = nn.Sequential(
                 self.dpt_feature_head, self.dpt_regressor_head
             )
             # Initialize Pose Head for all views if required
             if "pose" in self.pred_head_type:
                 self.pose_head = PoseHead(**pred_head_config["pose_head"])
+            '''
+            "pose_head": {
+                "input_feature_dim": 768,
+                "num_resconv_block": 2,
+                "patch_size": 14,
+                "rot_representation_dim": 4
+            },
+            '''
         else:
             raise ValueError(
                 f"Invalid pred_head_type: {self.pred_head_type}. Valid options: ['linear', 'dpt', 'dpt+pose']"
@@ -1359,6 +1407,9 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
 
         # Use mini-batch inference to run the dense prediction head (the memory bottleneck)
         # This saves memory and is slower than running the dense prediction head in one go
+        # 中文：
+        # 内存效率推理：如果为True，则使用mini-batch推理运行密集预测头（内存瓶颈）
+        # 这会节省内存，但比一次运行密集预测头要慢
         if memory_efficient_inference:
             # Obtain the batch size of the dense head inputs
             if self.pred_head_type == "linear":
@@ -1449,10 +1500,12 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
             dense_final_outputs = self.downstream_dense_head(
                 dense_head_inputs, img_shape
             )
-
+            # print("dense_final_outputs shape:", dense_final_outputs.value.shape)
             # Pose prediction
             pose_final_outputs = None
             if self.pred_head_type == "dpt+pose":
+                # print("dense_head_inputs[-1] shape:", dense_head_inputs[-1].shape)
+                # dense_head_inputs[-1] shape: torch.Size([8, 768, 16, 16])
                 pose_head_outputs = self.pose_head(
                     PredictionHeadInput(last_feature=dense_head_inputs[-1])
                 )
@@ -1536,6 +1589,10 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
 
         # Combine all images into view-centric representation
         # Output is a list containing the encoded features for all N views after information sharing.
+        # print("all_encoder_features_across_views shape:", [i.shape for i in all_encoder_features_across_views])
+        # print("input_scale_token shape:", input_scale_token.shape)
+        # all_encoder_features_across_views shape: [torch.Size([1, 1024, 37, 37]), torch.Size([1, 1024, 37, 37]), torch.Size([1, 1024, 37, 37]), torch.Size([1, 1024, 37, 37])]
+        # input_scale_token shape: torch.Size([1, 1024, 1])
         info_sharing_input = MultiViewTransformerInput(
             features=all_encoder_features_across_views,
             additional_input_tokens=input_scale_token,
@@ -1549,7 +1606,7 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
             ) = self.info_sharing(info_sharing_input)
 
         # print("info_sharing features shape:", [i.shape for i in final_info_sharing_multi_view_feat.features])
-
+        # info_sharing features shape: [torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37])]
         if self.pred_head_type == "linear":
             # Stack the features for all views
             dense_head_inputs = torch.cat(
@@ -1563,7 +1620,17 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
                 stacked_encoder_features = torch.cat(
                     all_encoder_features_across_views, dim=0
                 )
+                # print("stacked_encoder_features shape:", stacked_encoder_features.shape)
+                # stacked_encoder_features shape: torch.Size([4, 1024, 37, 37])
                 dense_head_inputs_list.append(stacked_encoder_features)
+
+                # print("len(intermediate_info_sharing_multi_view_feat):", len(intermediate_info_sharing_multi_view_feat))
+                # print(
+                #     "intermediate_info_sharing_multi_view_feat shape:",
+                #     [j.shape for i in intermediate_info_sharing_multi_view_feat for j in i.features]
+                # )
+                # len(intermediate_info_sharing_multi_view_feat): 2
+                # intermediate_info_sharing_multi_view_feat shape: [torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37]), torch.Size([1, 768, 37, 37])]
                 # Stack the first intermediate features for all views
                 stacked_intermediate_features_1 = torch.cat(
                     intermediate_info_sharing_multi_view_feat[0].features, dim=0
@@ -1579,6 +1646,8 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
                     final_info_sharing_multi_view_feat.features, dim=0
                 )
                 dense_head_inputs_list.append(stacked_final_features)
+                # print("dense_head_inputs_list shape:", [i.shape for i in dense_head_inputs_list])
+                # dense_head_inputs_list shape: [torch.Size([4, 1024, 37, 37]), torch.Size([4, 768, 37, 37]), torch.Size([4, 768, 37, 37]), torch.Size([4, 768, 37, 37])]
             else:
                 # Stack the first intermediate features for all views
                 stacked_intermediate_features_1 = torch.cat(
@@ -1614,8 +1683,22 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
             scale_head_inputs = (
                 final_info_sharing_multi_view_feat.additional_token_features
             )
+            # print("scale_head_inputs shape:", scale_head_inputs.shape)
+            # scale_head_inputs shape: torch.Size([1, 768, 1])
 
             # Run the downstream heads
+            # 打印downstream_head传入的参数
+            # print("dense_head_inputs shape:", [i.shape for i in dense_head_inputs])
+            # print("scale_head_inputs shape:", scale_head_inputs.shape)
+            # print("img_shape:", img_shape)
+            # print("memory_efficient_inference:", memory_efficient_inference)
+            # dense_head_inputs shape: [torch.Size([16, 1024, 16, 16]), torch.Size([16, 768, 16, 16]), torch.Size([16, 768, 16, 16]), torch.Size([16, 768, 16, 16])]
+            # 16 = 2,2,2,2, 2,2,2,2,cat
+            # scale_head_inputs shape: torch.Size([2, 768, 1])
+            # img_shape: (224, 224)
+            # memory_efficient_inference: False
+
+
             dense_final_outputs, pose_final_outputs, scale_final_output = (
                 self.downstream_head(
                     dense_head_inputs=dense_head_inputs,
@@ -1703,6 +1786,8 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
                 output_ray_directions, output_depth_along_ray = output_dense_rep.split(
                     [3, 1], dim=-1
                 )
+                # print("output_ray_directions.shape:", output_ray_directions.shape)
+                # output_ray_directions.shape: torch.Size([4, 518, 518, 3])
                 # Get the predicted camera translations and quaternions
                 output_cam_translations, output_cam_quats = (
                     pose_final_outputs.value.split([3, 4], dim=-1)
@@ -1727,10 +1812,17 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
                 output_cam_translations_per_view = output_cam_translations.chunk(
                     num_views, dim=0
                 )
+                # print("output_cam_quats.shape:", output_cam_quats.shape)
+                # output_cam_quats.shape: torch.Size([4, 4])
                 output_cam_quats_per_view = output_cam_quats.chunk(num_views, dim=0)
+                # print("output_cam_quats_per_view.shape:", [i.shape for i in output_cam_quats_per_view])
+                # output_cam_quats_per_view.shape: [torch.Size([1, 4]), torch.Size([1, 4]), torch.Size([1, 4]), torch.Size([1, 4])]
+                # Pack the output as a list of dictionaries
+
+                # print("output_pts3d.shape:", output_pts3d.shape)
+                # output_pts3d.shape: torch.Size([4, 518, 518, 3])
                 output_pts3d_per_view = output_pts3d.chunk(num_views, dim=0)
                 output_pts3d_cam_per_view = output_pts3d_cam.chunk(num_views, dim=0)
-                # Pack the output as a list of dictionaries
                 res = []
                 for i in range(num_views):
                     res.append(

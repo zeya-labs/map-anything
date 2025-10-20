@@ -1,0 +1,5 @@
+- Install editable package + extras: `pip install -e .` or `pip install -e ".[all]"`.
+- Setup pre-commit linting: `pre-commit install` then `pre-commit run --all-files`.
+- Run unit tests (if any): `pytest` (project depends on pytest/pytest-cov optional deps).
+- Launch Gradio demo: `python scripts/gradio_app.py` (requires `[gradio]`).
+- Train main model: use bash scripts under `bash_scripts/train/` (e.g., `bash bash_scripts/train/main/mapa_curri_4v_13d_48ipg_64g.sh 8`).

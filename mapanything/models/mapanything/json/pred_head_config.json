@@ -1,0 +1,107 @@
+{
+    "adaptor_config": {
+        "dense_pred_init_dict": {
+            "confidence_type": "exp",
+            "confidence_vmax": Infinity,
+            "confidence_vmin": 1,
+            "depth_mode": "exp",
+            "depth_vmax": Infinity,
+            "depth_vmin": 0,
+            "name": "raydirs+depth+pose+confidence+mask+scale",
+            "ray_directions_clamp_min_of_z_dir": false,
+            "ray_directions_mode": "linear",
+            "ray_directions_normalize_to_unit_image_plane": false,
+            "ray_directions_normalize_to_unit_sphere": true,
+            "ray_directions_vmax": Infinity,
+            "ray_directions_vmin": -Infinity,
+            "ray_directions_z_dir_min": -Infinity
+        },
+        "input_dim": 6,
+        "pose_pred_init_dict": {
+            "cam_trans_mode": "linear",
+            "cam_trans_vmax": Infinity,
+            "cam_trans_vmin": -Infinity,
+            "name": "raydirs+depth+pose+confidence+mask+scale",
+            "quaternions_mode": "linear",
+            "quaternions_normalize": true,
+            "quaternions_vmax": Infinity,
+            "quaternions_vmin": -Infinity
+        },
+        "scale_pred_init_dict": {
+            "mode": "exp",
+            "name": "raydirs+depth+pose+confidence+mask+scale",
+            "vmax": Infinity,
+            "vmin": 1e-08
+        },
+        "scene_rep_dim": 4,
+        "scene_rep_type": "raydirs+depth+pose",
+        "type": "raydirs+depth+pose+confidence+mask"
+    },
+    "adaptor_type": "raydirs+depth+pose+confidence+mask",
+    "dpt_adaptor": {
+        "confidence_type": "exp",
+        "confidence_vmax": Infinity,
+        "confidence_vmin": 1,
+        "depth_mode": "exp",
+        "depth_vmax": Infinity,
+        "depth_vmin": 0,
+        "name": "raydirs+depth+pose+confidence+mask+scale",
+        "ray_directions_clamp_min_of_z_dir": false,
+        "ray_directions_mode": "linear",
+        "ray_directions_normalize_to_unit_image_plane": false,
+        "ray_directions_normalize_to_unit_sphere": true,
+        "ray_directions_vmax": Infinity,
+        "ray_directions_vmin": -Infinity,
+        "ray_directions_z_dir_min": -Infinity
+    },
+    "feature_head": {
+        "checkpoint_gradient": false,
+        "feature_dim": 256,
+        "hooks": [
+            0,
+            1,
+            2,
+            3
+        ],
+        "input_feature_dims": [
+            1024,
+            768,
+            768,
+            768
+        ],
+        "patch_size": 14
+    },
+    "gradient_checkpointing": false,
+    "pose_adaptor": {
+        "cam_trans_mode": "linear",
+        "cam_trans_vmax": Infinity,
+        "cam_trans_vmin": -Infinity,
+        "name": "raydirs+depth+pose+confidence+mask+scale",
+        "quaternions_mode": "linear",
+        "quaternions_normalize": true,
+        "quaternions_vmax": Infinity,
+        "quaternions_vmin": -Infinity
+    },
+    "pose_head": {
+        "input_feature_dim": 768,
+        "num_resconv_block": 2,
+        "patch_size": 14,
+        "rot_representation_dim": 4
+    },
+    "regressor_head": {
+        "checkpoint_gradient": false,
+        "input_feature_dim": 256,
+        "output_dim": 6
+    },
+    "scale_adaptor": {
+        "mode": "exp",
+        "name": "raydirs+depth+pose+confidence+mask+scale",
+        "vmax": Infinity,
+        "vmin": 1e-08
+    },
+    "scale_head": {
+        "input_feature_dim": 768,
+        "output_dim": 1
+    },
+    "type": "dpt+pose"
+}
