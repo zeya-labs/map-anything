@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
+import rerun as rr
 import torch
 
 from mapanything.models import MapAnything
 from mapanything.utils.hf_utils.viz import predictions_to_glb
 from mapanything.utils.image import preprocess_inputs
+from mapanything.utils.viz import script_add_rerun_args, script_setup_with_port
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,6 +43,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Export the GLB as a triangle mesh instead of a point cloud (default: point cloud).",
     )
+    parser.add_argument(
+        "--viz",
+        action="store_true",
+        help="Enable visualization with Rerun.",
+    )
+    parser.add_argument(
+        "--filter_black_bg",
+        action="store_true",
+        help="Filter near-black pixels from outputs to remove background noise.",
+    )
+    parser.add_argument(
+        "--black_bg_threshold",
+        type=float,
+        default=0.2,
+        help="Threshold in [0, 1] used with --filter_black_bg to drop pixels whose max RGB is below this value.",
+    )
+    script_add_rerun_args(parser)
     return parser.parse_args()
 
 
@@ -77,20 +96,22 @@ def load_views_from_directory(directory: str, device: torch.device) -> List[Dict
                 "is_metric_scale": is_metric_scale,
             }
         )
-        print({
-                "img": img,
-                "intrinsics": intrinsics,
-                "camera_poses": camera_poses,
-                "depth_z": depth_z,
-                "is_metric_scale": is_metric_scale,
-            })
+        # print({
+        #         "img": img,
+        #         "intrinsics": intrinsics,
+        #         "camera_poses": camera_poses,
+        #         "depth_z": depth_z,
+        #         "is_metric_scale": is_metric_scale,
+        #     })
         print(f"Loaded view {path} with is_metric_scale {is_metric_scale}")
 
     return views
 
 
 def collate_predictions_for_glb(
-    predictions: List[Dict[str, torch.Tensor]]
+    predictions: List[Dict[str, torch.Tensor]],
+    filter_black_bg: bool = False,
+    black_bg_threshold: float = 0.0,
 ) -> Dict[str, np.ndarray]:
     """Convert model predictions into numpy arrays expected by predictions_to_glb."""
     world_points: List[np.ndarray] = []
@@ -126,9 +147,18 @@ def collate_predictions_for_glb(
             if mask_frame.ndim == 3 and mask_frame.shape[-1] == 1:
                 mask_frame = mask_frame[..., 0]
 
+            frame_mask = np.asarray(mask_frame, dtype=bool)
+            image_frame_np = np.asarray(image_frame, dtype=np.float32)
+            if filter_black_bg and image_frame_np.ndim == 3 and image_frame_np.shape[-1] >= 3:
+                color_for_filter = image_frame_np[..., :3]
+                max_val = float(color_for_filter.max()) if color_for_filter.size else 0.0
+                if max_val > 1.5:
+                    color_for_filter = color_for_filter / 255.0
+                frame_mask &= np.max(color_for_filter, axis=-1) > black_bg_threshold
+
             world_points.append(np.asarray(pts_frame, dtype=np.float32))
-            images.append(np.asarray(image_frame, dtype=np.float32))
-            final_masks.append(np.asarray(mask_frame, dtype=bool))
+            images.append(image_frame_np)
+            final_masks.append(frame_mask)
             # MapAnything camera_poses are already cam2world; exporting them directly keeps orientation correct.
             extrinsics.append(np.asarray(pose_frame, dtype=np.float32))
 
@@ -152,11 +182,96 @@ def collate_predictions_for_glb(
     return result
 
 
+def log_prediction_to_rerun(
+    pred: Dict[str, torch.Tensor],
+    view_idx: int,
+    filter_black_bg: bool,
+    black_bg_threshold: float,
+) -> None:
+    """Log prediction tensors to a Rerun timeline for visualization."""
+    image_tensor = pred["img_no_norm"][0]
+    image_np = image_tensor.detach().cpu().numpy()
+    if image_np.ndim == 3 and image_np.shape[0] in {3, 4} and image_np.shape[-1] not in {3, 4}:
+        image_np = np.transpose(image_np, (1, 2, 0))
+    image_np = image_np.astype(np.float32, copy=False)
+
+    depth_tensor = pred["depth_z"][0]
+    depth_np = depth_tensor.detach().cpu().numpy()
+    if depth_np.ndim == 3 and depth_np.shape[-1] == 1:
+        depth_np = depth_np[..., 0]
+    depth_np = depth_np.astype(np.float32, copy=False)
+
+    pose_np = pred["camera_poses"][0].detach().cpu().numpy()
+    intrinsics_np = pred["intrinsics"][0].detach().cpu().numpy()
+
+    pts3d_np = pred["pts3d"][0].detach().cpu().numpy()
+    pts3d_np = pts3d_np.astype(np.float32, copy=False)
+
+    mask_tensor = pred["mask"][0]
+    mask_np = mask_tensor.detach().cpu().numpy()
+    if mask_np.ndim == 3 and mask_np.shape[-1] == 1:
+        mask_np = mask_np[..., 0]
+    mask_np = mask_np.astype(bool, copy=False)
+
+    if filter_black_bg and image_np.ndim == 3 and image_np.shape[-1] >= 3:
+        color_for_filter = image_np[..., :3]
+        max_val = float(color_for_filter.max()) if color_for_filter.size else 0.0
+        if max_val > 1.5:
+            color_for_filter = color_for_filter / 255.0
+        mask_np &= np.max(color_for_filter, axis=-1) > black_bg_threshold
+
+    base_name = f"mapanything/view_{view_idx:02d}"
+    pts_name = f"mapanything/pointcloud_view_{view_idx:02d}"
+
+    height, width = image_np.shape[0], image_np.shape[1]
+
+    rr.log(
+        base_name,
+        rr.Transform3D(
+            translation=pose_np[:3, 3],
+            mat3x3=pose_np[:3, :3],
+        ),
+    )
+    rr.log(
+        f"{base_name}/pinhole",
+        rr.Pinhole(
+            image_from_camera=intrinsics_np,
+            height=height,
+            width=width,
+            camera_xyz=rr.ViewCoordinates.RDF,
+            image_plane_distance=1.0,
+        ),
+    )
+    rr.log(f"{base_name}/pinhole/rgb", rr.Image(image_np))
+    rr.log(f"{base_name}/pinhole/depth", rr.DepthImage(depth_np))
+    rr.log(f"{base_name}/pinhole/mask", rr.SegmentationImage(mask_np.astype(int)))
+
+    if mask_np.any():
+        filtered_pts = pts3d_np[mask_np]
+        filtered_cols = image_np[mask_np]
+        rr.log(
+            pts_name,
+            rr.Points3D(
+                positions=filtered_pts.reshape(-1, 3).astype(np.float32, copy=False),
+                colors=filtered_cols.reshape(-1, filtered_cols.shape[-1]).astype(np.float32, copy=False),
+            ),
+        )
+    else:
+        rr.log(
+            pts_name,
+            rr.Points3D(
+                positions=np.zeros((0, 3), dtype=np.float32),
+            ),
+        )
+
+
 def export_glb(
     predictions: List[Dict[str, torch.Tensor]],
     output_path: Path,
     input_path: Path,
     as_mesh: bool,
+    filter_black_bg: bool,
+    black_bg_threshold: float,
 ) -> Path:
     """Aggregate predictions and export a GLB file containing colored geometry and cameras."""
     if output_path is None:
@@ -170,7 +285,11 @@ def export_glb(
     if output_path.parent:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    predictions_np = collate_predictions_for_glb(predictions)
+    predictions_np = collate_predictions_for_glb(
+        predictions,
+        filter_black_bg=filter_black_bg,
+        black_bg_threshold=black_bg_threshold,
+    )
     scene = predictions_to_glb(
         predictions_np,
         show_cam=True,
@@ -185,6 +304,14 @@ def export_glb(
 def main() -> None:
     args = parse_args()
 
+    if getattr(args, "save", None):
+        save_path = Path(args.save).expanduser()
+        if save_path.parent:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if args.filter_black_bg:
+        args.black_bg_threshold = float(np.clip(args.black_bg_threshold, 0.0, 1.0))
+
     # Get inference device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -192,7 +319,7 @@ def main() -> None:
     model = MapAnything.from_pretrained(args.model).to(device)
 
     views_example = load_views_from_directory(args.views_dir, device)
-    
+
     # Preprocess inputs to the expected format
     processed_views = preprocess_inputs(views_example)
     # print(processed_views)
@@ -204,6 +331,8 @@ def main() -> None:
         amp_dtype="bf16",
         apply_mask=True,
         mask_edges=True,
+        edge_normal_threshold=5.0,
+        edge_depth_threshold=0.03,
         apply_confidence_mask=False,
         confidence_percentile=10,
         ignore_calibration_inputs=False,
@@ -212,6 +341,28 @@ def main() -> None:
         ignore_depth_scale_inputs=False,
         ignore_pose_scale_inputs=False,
     )
+
+    default_rerun_url = "rerun+http://127.0.0.1:2004/proxy"
+
+    if args.viz and args.serve and args.connect and args.url == default_rerun_url:
+        print(
+            "Detected --serve without an explicit --url; skipping default remote connection."
+        )
+        args.connect = False
+
+    if args.viz:
+        viz_identifier = "MapAnything_Multimodal_Inference"
+        try:
+            script_setup_with_port(args, viz_identifier)
+        except RuntimeError as err:
+            if "Address already in use" in str(err):
+                raise RuntimeError(
+                    f"Failed to launch Rerun web viewer on port {args.web_port}. "
+                    "Free the port or rerun with --web_port <PORT> to use a different one."
+                ) from err
+            raise
+        rr.set_time("stable_time", sequence=0)
+        rr.log("mapanything", rr.ViewCoordinates.RDF, static=True)
 
     if not isinstance(predictions, list):
         raise TypeError(
@@ -232,11 +383,33 @@ def main() -> None:
             else:
                 print(f"    - {key}: {type(value).__name__}")
 
+        if args.viz:
+            log_prediction_to_rerun(
+                pred,
+                view_idx,
+                filter_black_bg=args.filter_black_bg,
+                black_bg_threshold=args.black_bg_threshold,
+            )
+
+    if args.viz:
+        print("Visualization complete! Check the Rerun viewer.")
+
     # 总是导出GLB文件，如果没有指定输出路径则使用默认路径
     output_path = Path(args.output_path) if args.output_path is not None else None
-    saved_path = export_glb(predictions, output_path, Path(args.views_dir), args.as_mesh)
+    saved_path = export_glb(
+        predictions,
+        output_path,
+        Path(args.views_dir),
+        args.as_mesh,
+        args.filter_black_bg,
+        args.black_bg_threshold,
+    )
     print(f"Saved GLB reconstruction to: {saved_path.resolve()}")
 
+    if args.viz:
+        rr.script_teardown(args)
+        if getattr(args, "save", None):
+            print(f"Saved Rerun recording to: {Path(args.save).expanduser().resolve()}")
 
 if __name__ == "__main__":
     main()
@@ -244,7 +417,8 @@ if __name__ == "__main__":
 '''
 示例输入：
 python map-anything/scripts/demo_多模态推理.py \
-/mnt/sdb/chenmohan/VGGT-NBV/runs/dataset-house3k_bs-1_initv-3_pom-position_only_20251019-214431/images/step_000012/batch_000
+runs/dataset-house3k_bs-8_initv-3_pom-position_only_20251022-121242/images/step_000001/batch_000 \
+--viz --serve True --grpc_port 9876 --web_port 9098
 示例输出：
 Inference finished! Per-view outputs:
   View 00 (15 fields):
