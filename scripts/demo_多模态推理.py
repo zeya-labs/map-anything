@@ -65,6 +65,7 @@ def load_views_from_directory(directory: str, device: torch.device) -> List[Dict
         img: torch.Tensor = payload["img"].to(torch.float32)
         intrinsics: torch.Tensor = payload["intrinsics"].to(torch.float32)
         camera_poses: torch.Tensor = payload["camera_poses"].to(torch.float32)
+        depth_z: torch.Tensor = payload["depth_z"].to(torch.float32)
         is_metric_scale: torch.Tensor = payload.get("is_metric_scale", torch.tensor([True]))
 
         views.append(
@@ -72,9 +73,17 @@ def load_views_from_directory(directory: str, device: torch.device) -> List[Dict
                 "img": img,
                 "intrinsics": intrinsics,
                 "camera_poses": camera_poses,
+                "depth_z": depth_z,
                 "is_metric_scale": is_metric_scale,
             }
         )
+        print({
+                "img": img,
+                "intrinsics": intrinsics,
+                "camera_poses": camera_poses,
+                "depth_z": depth_z,
+                "is_metric_scale": is_metric_scale,
+            })
         print(f"Loaded view {path} with is_metric_scale {is_metric_scale}")
 
     return views
@@ -120,7 +129,8 @@ def collate_predictions_for_glb(
             world_points.append(np.asarray(pts_frame, dtype=np.float32))
             images.append(np.asarray(image_frame, dtype=np.float32))
             final_masks.append(np.asarray(mask_frame, dtype=bool))
-            extrinsics.append(np.linalg.inv(pose_frame).astype(np.float32))
+            # MapAnything camera_poses are already cam2world; exporting them directly keeps orientation correct.
+            extrinsics.append(np.asarray(pose_frame, dtype=np.float32))
 
             if conf_np is not None:
                 conf_frame = conf_np[batch_idx]

@@ -28,7 +28,7 @@
 ## 基本用法
 ```bash
 python map-anything/scripts/demo_images_only_inference.py \
-   --image_folder /mnt/sdb/chenmohan/VGGT-NBV/TEMP/view/render_output_volume_10/images \
+   --image_folder runs/dataset-house3k_bs-8_initv-3_pom-position_only_20251022-121242/images/step_000001/batch_000 \
    --viz --serve --web_port 9098 --connect False
   #  --save outputs/run.rrd \
   #  --save_glb --output_path outputs/scene.glb
