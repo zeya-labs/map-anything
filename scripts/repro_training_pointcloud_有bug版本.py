@@ -15,10 +15,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from mapanything.models import MapAnything
 from mapanything.utils.geometry import rotation_matrix_to_quaternion
-from mapanything.utils.image import IMAGE_NORMALIZATION_DICT
+from mapanything.utils.image import IMAGE_NORMALIZATION_DICT, preprocess_inputs
 from mapanything.utils.inference import (
     preprocess_input_views_for_inference,
     validate_input_views_for_inference,
@@ -85,9 +86,131 @@ def _load_views(directory: Path) -> List[Dict[str, torch.Tensor]]:
     return views
 
 
+def _to_hw3_tensor(image: torch.Tensor) -> torch.Tensor:
+    """Convert stored image tensor to channel-last (H, W, 3) format on CPU."""
+    if image.dim() == 4 and image.shape[0] == 1:
+        image = image.squeeze(0)
+    if image.dim() != 3:
+        raise ValueError(f"Unsupported img shape {tuple(image.shape)}")
+    if image.shape[0] == 3 and image.shape[-1] != 3:
+        image = image.permute(1, 2, 0)
+    elif image.shape[-1] != 3:
+        raise ValueError(f"Expected image channel dimension size 3, got {tuple(image.shape)}")
+    return image.detach().cpu().to(torch.float32)
+
+
+def _prepare_preprocess_inputs(
+    raw_views: List[Dict[str, torch.Tensor]],
+) -> Tuple[List[Dict[str, torch.Tensor]], List[Dict[str, Optional[torch.Tensor]]]]:
+    """Convert raw saved views to the format expected by preprocess_inputs."""
+    formatted: List[Dict[str, torch.Tensor]] = []
+    gt_metadata: List[Dict[str, Optional[torch.Tensor]]] = []
+
+    for view in raw_views:
+        formatted_view: Dict[str, torch.Tensor] = {}
+
+        image_tensor = _to_hw3_tensor(view["img"])
+        formatted_view["img"] = image_tensor
+
+        intrinsics = view.get("intrinsics")
+        if intrinsics is not None:
+            formatted_view["intrinsics"] = intrinsics.detach().cpu().to(torch.float32)
+
+        camera_poses = view.get("camera_poses")
+        if camera_poses is not None:
+            camera_poses_cpu = camera_poses.detach().cpu().to(torch.float32)
+            if camera_poses_cpu.dim() == 3 and camera_poses_cpu.shape[0] == 1:
+                camera_poses_cpu = camera_poses_cpu.squeeze(0)
+            formatted_view["camera_poses"] = camera_poses_cpu
+
+        depth_z = view.get("depth_z")
+        if depth_z is not None:
+            depth_tensor = depth_z.detach().cpu().to(torch.float32)
+            if depth_tensor.dim() == 3 and depth_tensor.shape[0] == 1:
+                depth_tensor = depth_tensor.squeeze(0)
+            formatted_view["depth_z"] = depth_tensor
+
+        is_metric_scale = view.get("is_metric_scale")
+        if is_metric_scale is not None:
+            if isinstance(is_metric_scale, torch.Tensor):
+                formatted_view["is_metric_scale"] = is_metric_scale.detach().cpu()
+            else:
+                formatted_view["is_metric_scale"] = torch.tensor(is_metric_scale, dtype=torch.bool)
+
+        formatted.append(formatted_view)
+
+        gt_metadata.append(
+            {
+                "gt_valid_mask": view.get("gt_valid_mask"),
+                "gt_point_map": view.get("gt_point_map"),
+            }
+        )
+
+    return formatted, gt_metadata
+
+
+def _resize_gt_metadata(
+    processed_views: List[Dict[str, torch.Tensor]],
+    gt_metadata: List[Dict[str, Optional[torch.Tensor]]],
+) -> List[Dict[str, Optional[torch.Tensor]]]:
+    """Resize optional ground truth maps to match processed resolution."""
+    resized_metadata: List[Dict[str, Optional[torch.Tensor]]] = []
+
+    for view, extras in zip(processed_views, gt_metadata):
+        height = int(view["img"].shape[-2])
+        width = int(view["img"].shape[-1])
+
+        resized_entry: Dict[str, Optional[torch.Tensor]] = {"gt_valid_mask": None, "gt_point_map": None}
+
+        mask = extras.get("gt_valid_mask")
+        if mask is not None:
+            mask_tensor = torch.as_tensor(mask).detach().cpu()
+            if mask_tensor.dim() == 4 and mask_tensor.shape[0] == 1:
+                mask_tensor = mask_tensor.squeeze(0)
+            if mask_tensor.dim() == 3 and mask_tensor.shape[0] == 1:
+                mask_tensor = mask_tensor.squeeze(0)
+            if mask_tensor.dim() == 3 and mask_tensor.shape[-1] == 1:
+                mask_tensor = mask_tensor.permute(2, 0, 1)
+            if mask_tensor.dim() == 2:
+                mask_tensor = mask_tensor.unsqueeze(0).unsqueeze(0)
+            elif mask_tensor.dim() == 3:
+                mask_tensor = mask_tensor.unsqueeze(0)
+            else:
+                raise ValueError(f"Unsupported gt_valid_mask shape {tuple(mask_tensor.shape)}")
+
+            mask_resized = F.interpolate(mask_tensor.float(), size=(height, width), mode="nearest")
+            resized_entry["gt_valid_mask"] = mask_resized.squeeze(0).squeeze(0).to(torch.bool)
+
+        point_map = extras.get("gt_point_map")
+        if point_map is not None:
+            point_tensor = torch.as_tensor(point_map).detach().cpu().to(torch.float32)
+            if point_tensor.dim() == 4 and point_tensor.shape[0] == 1:
+                point_tensor = point_tensor.squeeze(0)
+            if point_tensor.dim() == 4:
+                raise ValueError(f"Unsupported gt_point_map shape {tuple(point_tensor.shape)}")
+            if point_tensor.dim() == 3 and point_tensor.shape[0] == 3:
+                point_tensor = point_tensor
+            elif point_tensor.dim() == 3 and point_tensor.shape[-1] == 3:
+                point_tensor = point_tensor.permute(2, 0, 1)
+            else:
+                raise ValueError(f"Unsupported gt_point_map shape {tuple(point_tensor.shape)}")
+
+            point_tensor = point_tensor.unsqueeze(0)
+            point_resized = F.interpolate(point_tensor, size=(height, width), mode="bilinear", align_corners=False)
+            resized_entry["gt_point_map"] = point_resized.squeeze(0).permute(1, 2, 0)
+
+        resized_metadata.append(resized_entry)
+
+    while len(resized_metadata) < len(processed_views):
+        resized_metadata.append({"gt_valid_mask": None, "gt_point_map": None})
+
+    return resized_metadata
+
+
 def _assemble_batch(
     views: List[Dict[str, torch.Tensor]],
     device: torch.device,
+    gt_metadata: Optional[List[Dict[str, Optional[torch.Tensor]]]] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -105,7 +228,8 @@ def _assemble_batch(
     gt_mask_list: List[torch.Tensor] = []
     gt_map_list: List[torch.Tensor] = []
 
-    for view in views:
+    for view_idx, view in enumerate(views):
+        metadata_entry = gt_metadata[view_idx] if gt_metadata is not None else None
         image = view["img"]
         if image.dim() == 3:
             if image.shape[0] == 3:
@@ -125,10 +249,15 @@ def _assemble_batch(
             raise ValueError(f"Unsupported img rank {image.dim()}")
 
         image = image.to(device=device, dtype=torch.float32)
-        if torch.amax(image) > 1.0:
-            image = image / 255.0
-        image = image.clamp(0.0, 1.0)
-        images_list.append(image)
+        norm_type = view.get("data_norm_type", ["dinov2"])[0]
+        mean_tensor, std_tensor = _get_normalization_tensors(
+            norm_type,
+            device=device,
+            dtype=image.dtype,
+        )
+        image_denorm = (image * std_tensor) + mean_tensor
+        image_denorm = image_denorm.clamp(0.0, 1.0)
+        images_list.append(image_denorm)
 
         pose_mat = view["camera_poses"]
         if pose_mat.dim() == 2:
@@ -155,12 +284,28 @@ def _assemble_batch(
             if gt_mask.dim() == 2:
                 gt_mask = gt_mask.unsqueeze(0)
             gt_mask_list.append(gt_mask.to(device=device, dtype=torch.bool))
+        elif metadata_entry is not None:
+            mask_meta = metadata_entry.get("gt_valid_mask")
+            if mask_meta is not None:
+                mask_tensor = mask_meta
+                if mask_tensor.dim() == 2:
+                    mask_tensor = mask_tensor.unsqueeze(0)
+                gt_mask_list.append(mask_tensor.to(device=device, dtype=torch.bool))
 
         gt_map = view.get("gt_point_map")
         if gt_map is not None:
             if gt_map.dim() == 3:
                 gt_map = gt_map.unsqueeze(0)
             gt_map_list.append(gt_map.to(device=device, dtype=torch.float32))
+        elif metadata_entry is not None:
+            gt_point_map_meta = metadata_entry.get("gt_point_map")
+            if gt_point_map_meta is not None:
+                gt_map_tensor = gt_point_map_meta
+                if gt_map_tensor.dim() == 3 and gt_map_tensor.shape[-1] == 3:
+                    gt_map_tensor = gt_map_tensor.unsqueeze(0)
+                elif gt_map_tensor.dim() == 3 and gt_map_tensor.shape[0] == 3:
+                    gt_map_tensor = gt_map_tensor.unsqueeze(0)
+                gt_map_list.append(gt_map_tensor.to(device=device, dtype=torch.float32))
 
     images_tensor = torch.stack(images_list, dim=1).contiguous()
     pose_vec_tensor = torch.stack(pose_vec_list, dim=1).contiguous()
@@ -192,70 +337,50 @@ def _get_normalization_tensors(
 
 
 def _prepare_views_for_mapanything(
-    raw_views: List[Dict[str, torch.Tensor]],
-    images_batch: torch.Tensor,
-    depth_tensor: Optional[torch.Tensor],
+    processed_views: List[Dict[str, torch.Tensor]],
     *,
     device: torch.device,
-    data_norm_type: str = "dinov2",
 ) -> List[Dict[str, torch.Tensor]]:
-    if not raw_views:
-        raise ValueError("raw_views must contain at least one element")
+    if not processed_views:
+        raise ValueError("processed_views must contain at least one element")
 
-    batch_size, num_views = images_batch.shape[:2]
-    mean_tensor, std_tensor = _get_normalization_tensors(
-        data_norm_type,
-        device=device,
-        dtype=images_batch.dtype,
-    )
-
-    processed_views: List[Dict[str, torch.Tensor]] = []
-    for view_idx in range(num_views):
-        raw_view = raw_views[view_idx]
-
-        image_tensor = images_batch[:, view_idx].to(device=device, dtype=torch.float32)
-        normalized = (image_tensor - mean_tensor) / std_tensor
-
-        intrinsics = raw_view["intrinsics"]
-        if intrinsics.dim() == 2:
-            intrinsics = intrinsics.unsqueeze(0)
-        intrinsics = intrinsics.to(device=device, dtype=torch.float32)
-        if intrinsics.shape[0] == 1 and batch_size > 1:
-            intrinsics = intrinsics.expand(batch_size, -1, -1)
-
-        cam_pose = raw_view["camera_poses"]
-        if cam_pose.dim() == 2:
-            cam_pose = cam_pose.unsqueeze(0)
-        cam_pose = cam_pose.to(device=device, dtype=torch.float32)
-        if cam_pose.shape[0] == 1 and batch_size > 1:
-            cam_pose = cam_pose.expand(batch_size, -1, -1)
-
-        is_metric_scale = raw_view.get("is_metric_scale")
-        if is_metric_scale is None:
-            is_metric_tensor = torch.zeros(batch_size, dtype=torch.bool, device=device)
-        else:
-            if is_metric_scale.dim() == 0:
-                is_metric_tensor = is_metric_scale.bool().unsqueeze(0).to(device=device)
-            else:
-                is_metric_tensor = is_metric_scale.to(device=device, dtype=torch.bool)
-            if is_metric_tensor.shape[0] == 1 and batch_size > 1:
-                is_metric_tensor = is_metric_tensor.expand(batch_size)
-
+    device_ready_views: List[Dict[str, Any]] = []
+    for view in processed_views:
         view_dict: Dict[str, Any] = {
-            "img": normalized,
-            "data_norm_type": [data_norm_type],
-            "intrinsics": intrinsics,
-            "camera_poses": cam_pose,
-            "is_metric_scale": is_metric_tensor,
+            "img": view["img"].to(device=device, dtype=torch.float32).contiguous(),
+            "data_norm_type": view.get("data_norm_type", ["dinov2"]),
         }
 
+        intrinsics = view.get("intrinsics")
+        if intrinsics is not None:
+            intrinsics_tensor = intrinsics.to(device=device, dtype=torch.float32)
+            view_dict["intrinsics"] = intrinsics_tensor
+
+        cam_pose = view.get("camera_poses")
+        if cam_pose is not None:
+            cam_pose_tensor = cam_pose.to(device=device, dtype=torch.float32)
+            view_dict["camera_poses"] = cam_pose_tensor
+
+        depth_tensor = view.get("depth_z")
         if depth_tensor is not None:
-            depth_per_view = depth_tensor[:, view_idx]
-            view_dict["depth_z"] = depth_per_view.to(device=device, dtype=torch.float32)
+            depth_on_device = depth_tensor.to(device=device, dtype=torch.float32)
+            view_dict["depth_z"] = depth_on_device
 
-        processed_views.append(view_dict)
+        is_metric_scale = view.get("is_metric_scale")
+        if is_metric_scale is not None:
+            if isinstance(is_metric_scale, torch.Tensor):
+                is_metric_tensor = is_metric_scale.to(device=device, dtype=torch.bool)
+            else:
+                is_metric_tensor = torch.as_tensor(
+                    is_metric_scale,
+                    device=device,
+                    dtype=torch.bool,
+                )
+            view_dict["is_metric_scale"] = is_metric_tensor
 
-    validated_views = validate_input_views_for_inference(processed_views)
+        device_ready_views.append(view_dict)
+
+    validated_views = validate_input_views_for_inference(device_ready_views)
     ready_views = preprocess_input_views_for_inference(validated_views)
     print("views keys:", ready_views[0].keys())
     return ready_views
@@ -315,22 +440,23 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    views = _load_views(views_path)
+    raw_views = _load_views(views_path)
+    preprocess_input_views, raw_gt_metadata = _prepare_preprocess_inputs(raw_views)
+    processed_views = preprocess_inputs(preprocess_input_views)
+    resized_gt_metadata = _resize_gt_metadata(processed_views, raw_gt_metadata)
     (
         images_batch,
         _camera_pose_vec,
         depth_tensor,
         gt_valid_masks,
         gt_point_maps,
-    ) = _assemble_batch(views, device)
+    ) = _assemble_batch(processed_views, device, resized_gt_metadata)
 
     model = MapAnything.from_pretrained(args.model).to(device)
     model.eval()
 
     prepared_views = _prepare_views_for_mapanything(
-        views,
-        images_batch,
-        depth_tensor,
+        processed_views,
         device=device,
     )
 
