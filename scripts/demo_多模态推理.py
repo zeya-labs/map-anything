@@ -416,8 +416,8 @@ if __name__ == "__main__":
 
 '''
 示例输入：
-python map-anything/scripts/demo_多模态推理.py \
-runs/dataset-house3k_bs-8_initv-3_pom-position_only_20251022-121242/images/step_000001/batch_000 \
+CUDA_VISIBLE_DEVICES=1 python map-anything/scripts/demo_多模态推理.py \
+runs/dataset-house3k_bs-1_initv-1_pom-position_only_20251029-204628/images/step_000058/batch_000 \
 --viz --serve True --grpc_port 9876 --web_port 9098
 示例输出：
 Inference finished! Per-view outputs:
