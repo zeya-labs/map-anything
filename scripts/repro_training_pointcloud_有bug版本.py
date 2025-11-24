@@ -487,6 +487,8 @@ def main() -> None:
     reconstruction_loss = ReconstructionLoss(
         save_point_clouds=False,
         log_tensorboard=False,
+        default_device=device,
+        tensor_dtype=torch.float32,
     )
     pred_pointclouds, _ = reconstruction_loss.extract_point_cloud_from_reconstruction(
         recon_data=recon,
