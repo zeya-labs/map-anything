@@ -109,7 +109,7 @@ class MapAnythingAblations(nn.Module):
         """
         super().__init__()
 
-        # Initalize the attributes
+        # Initialize the attributes
         self.name = name
         self.encoder_config = encoder_config
         self.info_sharing_config = info_sharing_config
@@ -235,7 +235,7 @@ class MapAnythingAblations(nn.Module):
         else:
             self.custom_positional_encoding = None
 
-        # Add dependecies to info_sharing_config
+        # Add dependencies to info_sharing_config
         info_sharing_config["module_args"]["input_embed_dim"] = (
             self.encoder.enc_embed_dim
         )
@@ -246,7 +246,7 @@ class MapAnythingAblations(nn.Module):
         # Initialize Multi-View Transformer
         if self.info_sharing_return_type == "no_intermediate_features":
             # Returns only normalized last layer features
-            # Intialize multi-view transformer based on type
+            # Initialize multi-view transformer based on type
             if self.info_sharing_type == "cross_attention":
                 self.info_sharing = MultiViewCrossAttentionTransformer(
                     **info_sharing_config["module_args"]
@@ -348,7 +348,7 @@ class MapAnythingAblations(nn.Module):
             # Initialize Dense Prediction Head for all views
             self.dense_head = LinearFeature(**pred_head_config["feature_head"])
         elif "dpt" in self.pred_head_type:
-            # Initialze Dense Predction Head for all views
+            # Initialize Dense Prediction Head for all views
             self.dpt_feature_head = DPTFeature(**pred_head_config["feature_head"])
             self.dpt_regressor_head = DPTRegressionProcessor(
                 **pred_head_config["regressor_head"]

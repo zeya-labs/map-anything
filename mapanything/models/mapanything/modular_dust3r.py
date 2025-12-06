@@ -75,7 +75,7 @@ class ModularDUSt3R(nn.Module):
         """
         super().__init__(*args, **kwargs)
 
-        # Initalize the attributes
+        # Initialize the attributes
         self.name = name
         self.encoder_config = encoder_config
         self.info_sharing_config = info_sharing_config
@@ -131,7 +131,7 @@ class ModularDUSt3R(nn.Module):
         else:
             self.custom_positional_encoding = None
 
-        # Add dependecies to info_sharing_config
+        # Add dependencies to info_sharing_config
         info_sharing_config["module_args"]["input_embed_dim"] = (
             self.encoder.enc_embed_dim
         )
@@ -142,7 +142,7 @@ class ModularDUSt3R(nn.Module):
         # Initialize Multi-View Transformer
         if self.info_sharing_return_type == "no_intermediate_features":
             # Returns only normalized last layer features
-            # Intialize multi-view transformer based on type
+            # Initialize multi-view transformer based on type
             if self.info_sharing_type == "cross_attention":
                 self.info_sharing = MultiViewCrossAttentionTransformer(
                     **info_sharing_config["module_args"]
@@ -222,7 +222,7 @@ class ModularDUSt3R(nn.Module):
             # Initialize Prediction Head 2
             self.head2 = LinearFeature(**pred_head_config["feature_head"])
         elif self.pred_head_type == "dpt":
-            # Initialze Predction Head 1
+            # Initialize Prediction Head 1
             self.dpt_feature_head1 = DPTFeature(**pred_head_config["feature_head"])
             self.dpt_regressor_head1 = DPTRegressionProcessor(
                 **pred_head_config["regressor_head"]

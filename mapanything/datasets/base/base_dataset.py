@@ -319,7 +319,7 @@ class BaseDataset(EasyDataset):
         use_bidirectional_covis=True,
     ):
         """
-        Randomly samples S indices from an N x N covisbility matrix by forming adjacency edges such that the resulting subgraph (given by the indices) is connected.
+        Randomly samples S indices from an N x N covisibility matrix by forming adjacency edges such that the resulting subgraph (given by the indices) is connected.
         If the current node has no new unvisited neighbors, backtracking occurs.
         Retries with different starting indices if the desired number of samples is not reached, excluding previously visited components.
 
@@ -574,7 +574,7 @@ class BaseDataset(EasyDataset):
             if "non_ambiguous_mask" in view:
                 assert view["depthmap"].shape == view["non_ambiguous_mask"].shape
 
-            # Expand the last dimennsion of the depthmap
+            # Expand the last dimension of the depthmap
             view["depthmap"] = view["depthmap"][..., None]
 
             # Append RNG state to the views, this allows to check whether the RNG is in the same state each time

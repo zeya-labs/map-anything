@@ -170,7 +170,7 @@ class EasyDataset:
 
 
 class MulDataset(EasyDataset):
-    """Artifically augmenting the size of a dataset."""
+    """Artificially augmenting the size of a dataset."""
 
     multiplicator: int
 
@@ -244,7 +244,7 @@ class MulDataset(EasyDataset):
 
 
 class ResizedDataset(EasyDataset):
-    """Artifically changing the size of a dataset."""
+    """Artificially changing the size of a dataset."""
 
     new_size: int
 
