@@ -835,6 +835,15 @@ def transform_pose_using_quats_and_trans_2_to_1(quats1, trans1, quats2, trans2):
     else:
         squeeze_batch_dim = False
 
+    # Ensure dtype consistency for einsum/math ops.
+    target_dtype = quats1.dtype
+    if trans1.dtype != target_dtype:
+        trans1 = trans1.to(dtype=target_dtype)
+    if quats2.dtype != target_dtype:
+        quats2 = quats2.to(dtype=target_dtype)
+    if trans2.dtype != target_dtype:
+        trans2 = trans2.to(dtype=target_dtype)
+
     # Compute the inverse of view1's pose
     inv_quats1 = quaternion_inverse(quats1)
     R1_inv = quaternion_to_rotation_matrix(inv_quats1)

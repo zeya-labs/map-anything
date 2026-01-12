@@ -745,6 +745,8 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
                 cam_pose_trans = views[view_idx]["camera_pose_trans"][
                     per_sample_cam_input_mask_for_curr_view
                 ]
+                cam_pose_quats = cam_pose_quats.to(dtype=dtype)
+                cam_pose_trans = cam_pose_trans.to(dtype=dtype)
                 # Append to the list
                 pose_quats_non_ref_views.append(cam_pose_quats)
                 pose_trans_non_ref_views.append(cam_pose_trans)
@@ -755,6 +757,8 @@ class MapAnything(nn.Module, PyTorchModelHubMixin):
                 cam_pose_trans = views[0]["camera_pose_trans"][
                     per_sample_cam_input_mask_for_curr_view
                 ]
+                cam_pose_quats = cam_pose_quats.to(dtype=dtype)
+                cam_pose_trans = cam_pose_trans.to(dtype=dtype)
                 # Append to the list
                 pose_quats_ref_view_0.append(cam_pose_quats)
                 pose_trans_ref_view_0.append(cam_pose_trans)
