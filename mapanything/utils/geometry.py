@@ -813,52 +813,60 @@ def quaternion_multiply(q1, q2):
 
 def transform_pose_using_quats_and_trans_2_to_1(quats1, trans1, quats2, trans2):
     """
-    Transform quats and translation of pose2 from absolute frame (pose2 to world) to relative frame (pose2 to pose1).
-
+    优化的位姿变换函数：计算 Pose2 相对于 Pose1 的相对位姿。
+    
     Args:
-        - quats1: 4 or Bx4 torch tensor (unit quaternions and notation is (x, y, z, w))
-        - trans1: 3 or Bx3 torch tensor
-        - quats2: 4 or Bx4 torch tensor (unit quaternions and notation is (x, y, z, w))
-        - trans2: 3 or Bx3 torch tensor
-
+        quats1, quats2: (B, 4) or (4,) -> (x, y, z, w)
+        trans1, trans2: (B, 3) or (3,)
+    
     Returns:
-        - quats: 4 or Bx4 torch tensor (unit quaternions and notation is (x, y, z, w))
-        - trans: 3 or Bx3 torch tensor
+        rel_quats, rel_trans
     """
-    # Unsqueeze batch dimension if not present
+    # 1. 维度处理 (Unsqueeze if needed)
+    squeeze_batch_dim = False
     if quats1.dim() == 1:
         quats1 = quats1.unsqueeze(0)
         trans1 = trans1.unsqueeze(0)
         quats2 = quats2.unsqueeze(0)
         trans2 = trans2.unsqueeze(0)
         squeeze_batch_dim = True
-    else:
-        squeeze_batch_dim = False
 
-    # Ensure dtype consistency for einsum/math ops.
+    # 2. 类型对齐
     target_dtype = quats1.dtype
-    if trans1.dtype != target_dtype:
-        trans1 = trans1.to(dtype=target_dtype)
-    if quats2.dtype != target_dtype:
-        quats2 = quats2.to(dtype=target_dtype)
-    if trans2.dtype != target_dtype:
-        trans2 = trans2.to(dtype=target_dtype)
+    if trans1.dtype != target_dtype: trans1 = trans1.to(target_dtype)
+    if quats2.dtype != target_dtype: quats2 = quats2.to(target_dtype)
+    if trans2.dtype != target_dtype: trans2 = trans2.to(target_dtype)
 
-    # Compute the inverse of view1's pose
+    # ================= 核心计算 (优化版) =================
+    
+    # A. 计算 Pose1 的逆四元数
     inv_quats1 = quaternion_inverse(quats1)
-    R1_inv = quaternion_to_rotation_matrix(inv_quats1)
-    t1_inv = -1 * ein.einsum(R1_inv, trans1, "b i j, b j -> b i")
 
-    # Transform view2's pose to view1's frame
-    quats = quaternion_multiply(inv_quats1, quats2)
-    trans = ein.einsum(R1_inv, trans2, "b i j, b j -> b i") + t1_inv
+    # B. 计算相对旋转: q_rel = q1_inv * q2
+    rel_quats = quaternion_multiply(inv_quats1, quats2)
 
-    # Squeeze batch dimension if it was unsqueezed
+    # C. 计算世界坐标系下的位移差 (Optimization: 先减)
+    # diff_world = t2 - t1
+    trans_diff_world = trans2 - trans1
+
+    # D. 将位移差旋转到 Pose1 的局部坐标系 (Optimization: 后转)
+    # t_rel = R(q1_inv) * (t2 - t1)
+    
+    # 获取旋转矩阵 R(q1_inv)
+    R1_inv = quaternion_to_rotation_matrix(inv_quats1) # (B, 3, 3)
+    
+    # 矩阵向量乘法
+    # (B, 3, 3) x (B, 3) -> (B, 3)
+    rel_trans = torch.bmm(R1_inv, trans_diff_world.unsqueeze(-1)).squeeze(-1)
+
+    # ====================================================
+
+    # 4. 恢复维度
     if squeeze_batch_dim:
-        quats = quats.squeeze(0)
-        trans = trans.squeeze(0)
+        rel_quats = rel_quats.squeeze(0)
+        rel_trans = rel_trans.squeeze(0)
 
-    return quats, trans
+    return rel_quats, rel_trans
 
 
 def convert_ray_dirs_depth_along_ray_pose_trans_quats_to_pointmap(
